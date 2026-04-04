@@ -78,7 +78,7 @@ class Thumbnail:
 
             
             bg = ImageOps.fit(raw_cover, self.size, method=Image.Resampling.LANCZOS)
-            bg = bg.filter(ImageFilter.GaussianBlur(50))
+            bg = bg.filter(ImageFilter.GaussianBlur(30))
             bg = ImageEnhance.Brightness(bg).enhance(0.7)
             draw = ImageDraw.Draw(bg)
 
