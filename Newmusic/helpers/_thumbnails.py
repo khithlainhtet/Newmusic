@@ -1,6 +1,8 @@
+#Khithlainhtet
 import os
 import aiohttp
 import textwrap
+import io
 from PIL import Image, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageOps
 from Newmusic import config
 from Newmusic.helpers import Track
@@ -8,134 +10,113 @@ from Newmusic.helpers import Track
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 class Thumbnail:
-    def __init__(self):
+    def __init__(self): 
         self.size = (1280, 720)
         self.session: aiohttp.ClientSession | None = None
-        
+        self.API_URL = "" 
         
         title_font_path = os.path.join(BASE_DIR, "..", "helpers", "Raleway-Bold.ttf")
         info_font_path = os.path.join(BASE_DIR, "..", "helpers", "Inter-Light.ttf")
 
         try:
-            self.font_title = ImageFont.truetype(title_font_path, 40)
-            self.font_info = ImageFont.truetype(info_font_path, 28)
-            self.font_time = ImageFont.truetype(info_font_path, 22)
-            self.font_credit = ImageFont.truetype(info_font_path, 26)
+            self.font_title = ImageFont.truetype(title_font_path, 45)
+            self.font_info = ImageFont.truetype(info_font_path, 30)
+            self.font_small = ImageFont.truetype(info_font_path, 35) 
+            self.font_time = ImageFont.truetype(info_font_path, 24)
+            self.font_credit = ImageFont.truetype(info_font_path, 28)
         except:
-            
-            self.font_title = ImageFont.load_default()
-            self.font_info = ImageFont.load_default()
-            self.font_time = ImageFont.load_default()
-            self.font_credit = ImageFont.load_default()
-
-    def _wrap_text(self, text, font, max_width):
-        """စာသားရှည်ရင် ဘောင်အကျယ်အလိုက် ဖြတ်ပေးမယ့် function"""
-        avg_char_width = font.getlength('x') if hasattr(font, 'getlength') else 10
-        chars_per_line = int(max_width / avg_char_width)
-        wrapper = textwrap.TextWrapper(width=chars_per_line, break_long_words=True)
-        return wrapper.wrap(text=text)
+            self.font_title = self.font_info = self.font_small = self.font_time = self.font_credit = ImageFont.load_default()
 
     async def start(self) -> None:
         if not self.session or self.session.closed:
             self.session = aiohttp.ClientSession()
 
-    async def close(self) -> None:
-        if self.session and not self.session.closed:
-            await self.session.close()
-
-    async def save_thumb(self, output_path: str, url: str) -> bool:
-        if not url or not url.startswith("http"):
-            return False
+    async def get_image(self, image_url: str):
+        if not self.session: await self.start()
+        url = f"{self.API_URL}{image_url}" if self.API_URL else image_url
         try:
-            if not self.session or self.session.closed:
-                await self.start()
             async with self.session.get(url, timeout=10) as resp:
                 if resp.status == 200:
-                    with open(output_path, "wb") as f:
-                        f.write(await resp.read())
-                    return True
+                    data = await resp.read()
+                    return Image.open(io.BytesIO(data)).convert("RGBA")
         except:
-            return False
-        return False
+            return None
+        return None
 
     async def generate(self, song: Track) -> str:
         try:
             os.makedirs("cache", exist_ok=True)
-            temp = f"cache/temp_{song.id}.jpg"
             output = f"cache/{song.id}.png"
             
             if os.path.exists(output):
                 return output
 
-            success = await self.save_thumb(temp, song.thumbnail)
-            
-            if success and os.path.exists(temp):
-                raw_cover = Image.open(temp).convert("RGBA")
-            else:
-                raw_cover = Image.new("RGBA", (300, 300), (30, 30, 30, 255))
+            raw_cover = await self.get_image(song.thumbnail)
+            if not raw_cover:
+                raw_cover = Image.new("RGBA", (500, 500), (40, 40, 40, 255))
 
-            
-            bg = ImageOps.fit(raw_cover, self.size, method=Image.Resampling.LANCZOS)
-            bg = bg.filter(ImageFilter.GaussianBlur(50))
-            bg = ImageEnhance.Brightness(bg).enhance(0.7)
+            # 1. Background
+            bg = ImageOps.fit(raw_cover, self.size, method=Image.Resampling.BOX)
+            bg = bg.filter(ImageFilter.GaussianBlur(20)) 
+            bg = ImageEnhance.Brightness(bg).enhance(0.5) # နည်းနည်းပိုမှောင်လိုက်သည်
             draw = ImageDraw.Draw(bg)
 
+            # 2. Album Cover with White Border
+            c_size = 520
+            c_inner = c_size - 12
+            cx, cy = 100, (self.size[1] - c_size) // 2
             
-            player_w, player_h = 850, 500
-            px, py = (self.size[0] - player_w) // 2, (self.size[1] - player_h) // 2
-            draw.rounded_rectangle((px, py, px + player_w, py + player_h), 30, fill=(15, 15, 15, 230))
-
+            border_bg = Image.new("RGBA", (c_size, c_size), "white")
+            b_mask = Image.new("L", (c_size, c_size), 0)
+            ImageDraw.Draw(b_mask).rounded_rectangle((0, 0, c_size, c_size), 40, fill=255)
+            border_bg.putalpha(b_mask)
             
-            c_size = 320
-            cx, cy = px + 40, py + 40
-            cover_img = ImageOps.fit(raw_cover, (c_size, c_size), method=Image.Resampling.LANCZOS)
-            mask = Image.new("L", (c_size, c_size), 0)
-            ImageDraw.Draw(mask).rounded_rectangle((0, 0, c_size, c_size), 25, fill=255)
-            cover_img.putalpha(mask)
+            cover_img = ImageOps.fit(raw_cover, (c_inner, c_inner), method=Image.Resampling.LANCZOS)
+            c_mask = Image.new("L", (c_inner, c_inner), 0)
+            ImageDraw.Draw(c_mask).rounded_rectangle((0, 0, c_inner, c_inner), 35, fill=255)
+            cover_img.putalpha(c_mask)
             
-            draw.rounded_rectangle((cx-3, cy-3, cx+c_size+3, cy+c_size+3), 28, outline=(255, 200, 50), width=4)
-            bg.paste(cover_img, (cx, cy), cover_img)
+            border_bg.paste(cover_img, (6, 6), cover_img)
+            bg.paste(border_bg, (cx, cy), border_bg)
 
+            # 3. Contact Text
+            contact = "If you want to create your own music bot, please contact @HEX_KING9"
+            draw.text((self.size[0]//2, 45), contact, font=self.font_small, fill="white", anchor="ma")
+
+            # 4. Text & Info (ကျော်ထွက်ခြင်းကို ပြင်ဆင်ထားသော အပိုင်း)
+            tx_start = 660 # စာသားစတင်မည့်နေရာကို ဘယ်ဘက်သို့ တိုးလိုက်သည်
             
-            tx, ty = cx + c_size + 40, cy + 20
-            details = "If you want to create your own music bot\nplease contact the developer mentioned in\nthe credit below."
-            draw.text((tx, ty), details, font=self.font_time, fill=(255, 255, 0), spacing=8)
-            draw.text((tx, ty + 140), "Now Playing", font=self.font_info, fill=(255, 255, 0))
-
+            draw.text((tx_start, 160), "Now Playing", font=self.font_info, fill=(255, 200, 50))
             
-            max_text_width = player_w - c_size - 100 
-            wrapped_title = self._wrap_text(song.title, self.font_title, max_text_width)
-            
-            current_y = ty + 185
-            
-            for line in wrapped_title[:2]:
-                draw.text((tx, current_y), line, font=self.font_title, fill=(255, 255, 255))
-                current_y += 50 
-            # ---------------------------------------------------
+            # width=18 ထားလိုက်ခြင်းဖြင့် စာကြောင်းတိုတိုနှင့် အောက်ဆင်းသွားပါမည်
+            lines = textwrap.wrap(song.title, width=18)
+            curr_y = 215
+            for line in lines[:3]: # စာကြောင်း ၃ ကြောင်းအထိ ပြမည်
+                draw.text((tx_start, curr_y), line, font=self.font_title, fill="white")
+                curr_y += 65
 
-            # Progress Bar
-            bar_w, bx, by = player_w - 80, px + 40, py + player_h - 110
-            draw.rounded_rectangle((bx, by, bx + bar_w, by + 8), 4, fill=(60, 60, 60))
-            draw.rounded_rectangle((bx, by, bx + (bar_w * 0.4), by + 8), 4, fill=(255, 200, 50))
-            draw.ellipse((bx + (bar_w * 0.4) - 8, by - 4, bx + (bar_w * 0.4) + 8, by + 12), fill=(255, 200, 50))
+            # 5. Progress Bar
+            bar_y = 480
+            bar_w = 500
+            draw.rounded_rectangle((tx_start, bar_y, tx_start + bar_w, bar_y + 8), 4, fill=(100, 100, 100, 150))
+            draw.rounded_rectangle((tx_start, bar_y, tx_start + (bar_w * 0.45), bar_y + 8), 4, fill=(255, 200, 50))
 
-            # Time Labels
-            draw.text((bx, by + 20), "1:24", font=self.font_time, fill=(255, 255, 255))
-            draw.text((bx + bar_w, by + 20), "3:45", font=self.font_time, fill="white", anchor="ra")
+            # 6. Time Info
+            draw.text((tx_start, bar_y + 20), "0:03", font=self.font_time, fill="white")
+            draw.text((tx_start + bar_w, bar_y + 20), "4:33", font=self.font_time, fill="white", anchor="ra")
 
-            # Playback Controls (Symbols)
-            ctrl_y = by + 50
-            draw.text((self.size[0]//2 - 100, ctrl_y), "<<", font=self.font_title, fill=(255, 255, 255), anchor="ma")
-            draw.text((self.size[0]//2, ctrl_y), "||", font=self.font_title, fill=(255, 255, 255), anchor="ma")
-            draw.text((self.size[0]//2 + 100, ctrl_y), ">>", font=self.font_title, fill=(255, 255, 255), anchor="ma")
+            # 7. Playback Symbols
+            ctrl_y = 580
+            draw.text((tx_start + 100, ctrl_y), "«", font=self.font_title, fill="white", anchor="ma")
+            draw.text((tx_start + 250, ctrl_y), "II", font=self.font_title, fill="white", anchor="ma")
+            draw.text((tx_start + 400, ctrl_y), "»", font=self.font_title, fill="white", anchor="ma")
 
-            # Credit Text
-            draw.text((self.size[0]//2, self.size[1] - 40), "Credit by @HANTHAR999", font=self.font_credit, fill=(255, 255, 255), anchor="ma")
+            # 8. Bottom Credit
+            draw.text((self.size[0]//2, self.size[1] - 45), "Credit by @HANTHAR999", font=self.font_credit, fill=(255, 255, 255, 180), anchor="ma")
 
             bg.save(output, "PNG")
-            if os.path.exists(temp): os.remove(temp)
             return output
 
         except Exception as e:
-            print(f"Error generating thumb: {e}")
+            print(f"Error: {e}")
             return config.DEFAULT_THUMB
