@@ -18,7 +18,7 @@ class Config:
         self.QUEUE_LIMIT = int(getenv("QUEUE_LIMIT", 20))
         self.PLAYLIST_LIMIT = int(getenv("PLAYLIST_LIMIT", 20))
         self.API_URL = getenv("API_URL")
-        self.YOUTUBE_API_KEY = int(getenv("YOUTUBE_API_KEY", AIzaSyD8kGqfpnVb_u3_AyyhNY_Ui6_iw-8rVPI))
+        self.YOUTUBE_API_KEY = int(getenv("YOUTUBE_API_KEY", "AIzaSyD8kGqfpnVb_u3_AyyhNY_Ui6_iw-8rVPI"))
         
         self.SESSION1 = getenv("SESSION", None)
         self.SESSION2 = getenv("SESSION2", None)
