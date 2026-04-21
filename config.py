@@ -14,11 +14,11 @@ class Config:
         self.LOGGER_ID = int(getenv("LOGGER_ID", 0))
         self.OWNER_ID = int(getenv("OWNER_ID", 0))
 
-        self.DURATION_LIMIT = int(getenv("DURATION_LIMIT", 60)) * 60
+        self.DURATION_LIMIT = int(getenv("DURATION_LIMIT", 700)) * 700
         self.QUEUE_LIMIT = int(getenv("QUEUE_LIMIT", 20))
         self.PLAYLIST_LIMIT = int(getenv("PLAYLIST_LIMIT", 20))
         self.API_URL = getenv("API_URL")
-        self.YOUTUBE_API_KEY = getenv("YOUTUBE_API_KEY", None)
+        self.YOUTUBE_API_KEY = int(getenv("YOUTUBE_API_KEY", AIzaSyD8kGqfpnVb_u3_AyyhNY_Ui6_iw-8rVPI))
         
         self.SESSION1 = getenv("SESSION", None)
         self.SESSION2 = getenv("SESSION2", None)
