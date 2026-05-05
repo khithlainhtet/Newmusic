@@ -2,7 +2,7 @@
 
 from ntgcalls import (ConnectionNotFound, TelegramServerError,
                       RTMPStreamingUnsupported, ConnectionError)
-from pyrogram import enums # <--- ဒါကို ထည့်ပေးထားပါတယ်
+from pyrogram import enums 
 from pyrogram.errors import (ChatSendMediaForbidden, ChatSendPhotosForbidden,
                              MessageIdInvalid)
 from pyrogram.types import InputMediaPhoto, Message
@@ -15,7 +15,7 @@ from Newmusic.helpers import Media, Track, buttons
 
 
 class TgCall(PyTgCalls):
-    def init(self):
+    def __init__(self):
         self.clients = []
 
     async def pause(self, chat_id: int) -> bool:
@@ -39,7 +39,6 @@ class TgCall(PyTgCalls):
         except Exception:
             pass
 
-
     async def play_media(
         self,
         chat_id: int,
@@ -56,7 +55,6 @@ class TgCall(PyTgCalls):
         ) if config.THUMB_GEN else None
 
         if not media.file_path:
-            # parse_mode ပေါင်းထည့်ထားသည်
             await message.edit_text(_lang["error_no_file"].format(config.SUPPORT_CHAT), parse_mode=enums.ParseMode.HTML)
             return await self.play_next(chat_id)
 
@@ -87,21 +85,84 @@ class TgCall(PyTgCalls):
                     media.duration,
                     media.user,
                 )
-                keyboard = buttons.controls(chat_id,_lang=_lang)
+                keyboard = buttons.controls(chat_id, _lang=_lang)
                 try:
                     if _thumb:
                         await message.edit_media(
                             media=InputMediaPhoto(
                                 media=_thumb,
                                 caption=text,
-                                parse_mode=enums.ParseMode.HTML # <--- ပြင်ဆင်ချက်
+                                parse_mode=enums.ParseMode.HTML
                             ),
                             reply_markup=keyboard,
                         )
                     else:
-                        await message.edit_text(text, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML) # <--- ပြင်ဆင်ချက်
+                        await message.edit_text(text, reply_markup=keyboard, parse_mode=enums.ParseMode.HTML)
                 except (ChatSendMediaForbidden, ChatSendPhotosForbidden, MessageIdInvalid):
-                        await self.play_next(update.chat_id)
+                    if _thumb:
+                        sent = await app.send_photo(
+                            chat_id=chat_id,
+                            photo=_thumb,
+                            caption=text,
+                            reply_markup=keyboard,
+                            parse_mode=enums.ParseMode.HTML
+                        )
+                    else:
+                        sent = await app.send_message(
+                            chat_id=chat_id,
+                            text=text,
+                            reply_markup=keyboard,
+                            parse_mode=enums.ParseMode.HTML
+                        )
+                    media.message_id = sent.id
+        except FileNotFoundError:
+            await message.edit_text(_lang["error_no_file"].format(config.SUPPORT_CHAT), parse_mode=enums.ParseMode.HTML)
+            await self.play_next(chat_id)
+        except exceptions.NoActiveGroupCall:
+            await self.stop(chat_id)
+            await message.edit_text(_lang["error_no_call"], parse_mode=enums.ParseMode.HTML)
+        except (ConnectionError, ConnectionNotFound, TelegramServerError):
+            await self.stop(chat_id)
+            await message.edit_text(_lang["error_tg_server"], parse_mode=enums.ParseMode.HTML)
+        except Exception as e:
+            await message.edit_text(f"Error: {e}")
+
+    async def replay(self, chat_id: int) -> None:
+        if not await db.get_call(chat_id):
+            return
+        media = queue.get_current(chat_id)
+        _lang = await lang.get_lang(chat_id)
+        msg = await app.send_message(chat_id=chat_id, text=_lang["play_again"], parse_mode=enums.ParseMode.HTML)
+        media.message_id = msg.id
+        await self.play_media(chat_id, msg, media)
+
+    async def play_next(self, chat_id: int) -> None:
+        if loop := await db.get_loop(chat_id):
+            await db.set_loop(chat_id, loop - 1)
+            return await self.replay(chat_id)
+
+        media = queue.get_next(chat_id)
+        if not media:
+            return await self.stop(chat_id)
+
+        _lang = await lang.get_lang(chat_id)
+        msg = await app.send_message(chat_id=chat_id, text=_lang["play_next"], parse_mode=enums.ParseMode.HTML)
+        
+        if not media.file_path:
+            media.file_path = await yt.download(media.id, video=media.video)
+            if not media.file_path:
+                await self.play_next(chat_id)
+                return await msg.edit_text(_lang["error_no_file"].format(config.SUPPORT_CHAT), parse_mode=enums.ParseMode.HTML)
+
+        media.message_id = msg.id
+        await self.play_media(chat_id, msg, media)
+
+    async def decorators(self, client: PyTgCalls) -> None:
+        @client.on_update()
+        async def update_handler(_, update: types.Update) -> None:
+            if isinstance(update, types.StreamEnded):
+                if update.stream_type == types.StreamEnded.Type.AUDIO:
+                    await self.play_next(update.chat_id)
             elif isinstance(update, types.ChatUpdate):
                 if update.status in [
                     types.ChatUpdate.Status.KICKED,
@@ -109,7 +170,6 @@ class TgCall(PyTgCalls):
                     types.ChatUpdate.Status.CLOSED_VOICE_CHAT,
                 ]:
                     await self.stop(update.chat_id)
-
 
     async def boot(self) -> None:
         PyTgCallsSession.notice_displayed = True
